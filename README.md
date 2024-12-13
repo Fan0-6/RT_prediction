@@ -1,2 +1,363 @@
 # RT_prediction
 STA 221 final project: Retention Time Prediction in HILIC for Boosting High Confidence Compound Identification 
+
+
+
+#Retip
+```{r}
+library(tidyverse)
+library(data.table)
+library(caret)
+library(randomForest)
+library(xgboost)
+library(glmnet)
+library(keras)
+library(e1071)
+library(ggplot2)
+library(glmnetUtils)
+```
+```{r cars}
+file_path <- "C:/Users/xia/Desktop/STA 221/descriptors.csv"
+descriptors_data <- read.csv(file_path)
+head(descriptors_data)
+dim(descriptors_data)
+
+
+```
+
+## Merge and clean Data
+
+
+
+```{r pressure, echo=FALSE}
+sum(is.na(descriptors_data))
+
+descriptors_data <- descriptors_data %>% drop_na()
+
+sum(duplicated(descriptors_data))
+"RT" %in% colnames(descriptors_data)
+
+summary(descriptors_data$RT)
+
+sum(is.na(descriptors_data$RT))  
+length(unique(descriptors_data$RT))  
+```
+## Feature Engineering
+```{r}
+
+predictors <- setdiff(names(descriptors_data), c("RT","NAME", "InChIKey", "SMILES"))
+target <- "RT"
+set.seed(123)
+trainIndex <- createDataPartition(descriptors_data$RT, p = 0.8, list = FALSE)
+train_data <- descriptors_data[trainIndex, ]
+test_data <- descriptors_data[-trainIndex, ]
+```
+## Random Forest
+```{r}
+rf_model <- randomForest(RT ~ ., data = train_data[, c(predictors, target)], ntree = 500)
+rf_predictions <- predict(rf_model, test_data[, predictors])
+
+```
+## Xgb
+```{r}
+
+##sapply(train_data[, predictors], class)
+##train_data[, predictors] <- lapply(train_data[, predictors], function(x) as.numeric(as.character(x)))
+
+##sapply(train_data[, predictors], class)
+##class(train_data$RT)  # or train_data$RT if you renamed the column
+
+##sapply(test_data[, predictors], class)
+##test_data[, predictors] <- lapply(test_data[, predictors], function(x) as.numeric(as.character(x)))
+
+##sapply(test_data[, predictors], class)
+##class(test_data$RT)
+
+test_data$RT <- as.numeric(test_data$RT)
+train_data$RT <- as.numeric(train_data$RT)
+xgb_train <- xgb.DMatrix(data = as.matrix(train_data[, predictors]), label = train_data$RT)
+xgb_test <- xgb.DMatrix(data = as.matrix(test_data[, predictors]))
+
+params <- list(booster = "gbtree", eta = 0.1, max_depth = 6, objective = "reg:squarederror")
+xgb_model <- xgb.train(params = params, data = xgb_train, nrounds = 100)
+
+xgb_predictions <- predict(xgb_model, xgb_test)
+sample_data <- as.matrix(train_data[1:10, predictors])
+xgb_test <- xgb.DMatrix(data = sample_data)
+```
+
+
+##A. Data Integrity
+```{r}
+
+cat("Missing values in train predictors:", sum(is.na(train_data[, predictors])), "\n")
+cat("Missing values in test predictors:", sum(is.na(test_data[, predictors])), "\n")
+cat("Missing values in train target:", sum(is.na(train_data$RT)), "\n")
+cat("Missing values in test target:", sum(is.na(test_data$RT)), "\n")
+
+predictors_numeric <- all(sapply(train_data[, predictors], is.numeric))
+cat("Are all predictors numeric? ", predictors_numeric, "\n")
+
+unique_targets <- length(unique(train_data$RT))
+cat("Number of unique target values in train data:", unique_targets, "\n")
+if (unique_targets <= 1) {
+  stop("Target variable 'RT' is constant or has insufficient variability.")
+}
+
+
+```
+##B. Model Performance
+1.Calculate MAE and RMSE for Each Model
+```{r}
+
+rf_residuals <- test_data$RT - rf_predictions
+xgb_residuals <- test_data$RT - xgb_predictions
+
+
+ggplot() +
+  geom_density(aes(rf_residuals, color = "Random Forest")) +
+  geom_density(aes(xgb_residuals, color = "XGBoost")) +
+  labs(title = "Error Distribution", x = "Residuals", y = "Density") +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red"))
+
+
+evaluate <- function(actual, predicted) {
+  mae <- mean(abs(actual - predicted))
+  rmse <- sqrt(mean((actual - predicted)^2))
+  R_sq <- 1- (sum((actual -predicted)^2)/sum((actual - mean(actual))^2))
+  medae <- median(abs(actual - predicted))
+  mre <- mean(abs(actual - predicted) / abs(actual)) * 100
+  list(MAE = mae, RMSE = rmse, Rsq = R_sq,MedAE = medae, MRE = mre)
+}
+
+rf_eval <- evaluate(test_data$RT, rf_predictions)
+xgb_eval <- evaluate(test_data$RT, xgb_predictions)
+
+
+cat("Model Performance Metrics:\n")
+cat("Random Forest - MAE:", rf_eval$MAE, "RMSE:", rf_eval$RMSE, "R Squared:", rf_eval$Rsq,"MedAE:", rf_eval$MedAE,"MRE:",rf_eval$MRE,    "\n")
+cat("XGBoost - MAE:", xgb_eval$MAE, "RMSE:", xgb_eval$RMSE, "R Squared:", xgb_eval$Rsq,"MedAE:", xgb_eval$MedAE,"MRE:",xgb_eval$MRE, "\n")
+
+```
+##2.Examine Residual Plots
+```{r}
+ggplot() +
+  geom_density(aes(rf_residuals, color = "Random Forest")) +
+  geom_density(aes(xgb_residuals, color = "XGBoost")) +
+  labs(title = "Residuals Distribution", x = "Residuals", y = "Density") +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red"))
+
+
+
+
+```
+##C. Interpretability 1.Feature Importance for Random Forest
+```{r}
+
+rf_importance <- importance(rf_model)
+rf_importance_df <- data.frame(Feature = rownames(rf_importance), Importance = rf_importance[, 1])
+rf_importance_df <- rf_importance_df %>% arrange(desc(Importance))
+
+ggplot(rf_importance_df[1:15,], aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  coord_flip() +
+  labs(title = "Random Forest Feature Importance", x = "Features", y = "Importance") +
+  theme_minimal()
+```
+
+##2.Feature Importance for XGBoost
+```{r}
+xgb_importance <- xgb.importance(model = xgb_model)
+xgb.plot.importance(xgb_importance, top_n = 10, main = "XGBoost Feature Importance")
+```
+##D. Documentation 1.Save Code, Results, and Visualizations
+
+```{r}
+ggsave("residuals_distribution.png")
+ggsave("random_forest_importance.png")
+
+write.csv(data.frame(
+  Model = c("Random Forest", "XGBoost" ),
+  MAE = c(rf_eval$MAE, xgb_eval$MAE),
+  RMSE = c(rf_eval$RMSE, xgb_eval$RMSE)
+), "model_performance_metrics.csv", row.names = FALSE)
+
+predictions_df <- data.frame(
+  Actual = test_data$RT,
+  RF_Predictions = rf_predictions,
+  XGB_Predictions = xgb_predictions
+)
+
+write.csv(predictions_df, "model_predictions.csv", row.names = FALSE)
+
+cat("Predictions saved to model_predictions.csv\n")
+
+
+```
+
+```{r}
+
+
+
+
+```
+
+##LightGBM
+```{r}
+if (!requireNamespace("lightgbm", quietly = TRUE)) {
+  install.packages("lightgbm")
+}
+library(lightgbm)
+
+lgb_train <- lgb.Dataset(data = as.matrix(train_data[, predictors]), label = train_data$RT)
+lgb_test <- as.matrix(test_data[, predictors])
+
+lgb_params <- list(
+  objective = "regression",
+  metric = "rmse",
+  learning_rate = 0.1,
+  num_leaves = 31,
+  max_depth = -1
+)
+
+lgb_model <- lgb.train(
+  params = lgb_params,
+  data = lgb_train,
+  nrounds = 100
+)
+
+lgb_predictions <- predict(lgb_model, lgb_test)
+
+lgb_eval <- evaluate(test_data$RT, lgb_predictions)
+cat("LightGBM - MAE:", lgb_eval$MAE, "RMSE:", lgb_eval$RMSE, "R Squared:", lgb_eval$Rsq,"\n")
+
+
+
+
+
+```
+##1. Data Integrity
+
+```{r}
+cat("Missing values in predictors (train):", sum(is.na(train_data[, predictors])), "\n")
+cat("Missing values in predictors (test):", sum(is.na(test_data[, predictors])), "\n")
+cat("Missing values in target (train):", sum(is.na(train_data$RT)), "\n")
+cat("Missing values in target (test):", sum(is.na(test_data$RT)), "\n")
+
+cat("Infinite values in predictors (train):", sum(is.infinite(as.matrix(train_data[, predictors]))), "\n")
+cat("Infinite values in predictors (test):", sum(is.infinite(as.matrix(test_data[, predictors]))), "\n")
+
+constant_columns <- apply(train_data[, predictors], 2, function(x) length(unique(x)) == 1)
+train_data <- train_data[, !constant_columns]
+test_data <- test_data[, !constant_columns]
+predictors <- colnames(train_data)[colnames(train_data) != "RT"]
+
+
+
+
+```
+##2. Data Preparation Ensure Predictors Are Numeric:
+```{r}
+train_data[, predictors] <- lapply(train_data[, predictors], as.numeric)
+test_data[, predictors] <- lapply(test_data[, predictors], as.numeric)
+
+train_data[, predictors] <- lapply(train_data[, predictors], function(x) (x - min(x)) / (max(x) - min(x)))
+test_data[, predictors] <- lapply(test_data[, predictors], function(x) (x - min(x)) / (max(x) - min(x)))
+
+
+
+
+
+
+
+
+```
+##3. Model Training
+```{r}
+lgb_train <- lgb.Dataset(data = as.matrix(train_data[, predictors]), label = train_data$RT)
+lgb_test <- as.matrix(test_data[, predictors])
+
+params <- list(
+  objective = "regression",
+  metric = "rmse",
+  learning_rate = 0.1,
+  num_leaves = 31,
+  max_depth = -1,
+  feature_fraction = 0.8,
+  bagging_fraction = 0.8,
+  bagging_freq = 5
+)
+
+cv_results <- lgb.cv(
+  params = params,
+  data = lgb_train,
+  nrounds = 1000,
+  nfold = 5,
+  verbose = -1,
+  early_stopping_rounds = 10
+)
+
+cat("Best iteration:", cv_results$best_iter, "\n")
+
+lgb_model <- lgb.train(
+  params = params,
+  data = lgb_train,
+  nrounds = cv_results$best_iter
+)
+
+
+```
+## 4. Predictions and Evaluation
+```{r}
+lgb_predictions <- predict(lgb_model, lgb_test)
+
+evaluate <- function(actual, predicted) {
+  mae <- mean(abs(actual - predicted))
+  rmse <- sqrt(mean((actual - predicted)^2))
+  R_sq <- 1- (sum((actual -predicted)^2)/sum((actual - mean(actual))^2))
+  medae <- median(abs(actual - predicted))
+  mre <- mean(abs(actual - predicted) / abs(actual)) * 100
+  list(MAE = mae, RMSE = rmse, Rsq = R_sq,MedAE = medae, MRE = mre)
+}
+
+lgb_eval <- evaluate(test_data$RT, lgb_predictions)
+cat("LightGBM - MAE:", lgb_eval$MAE, "RMSE:", lgb_eval$RMSE,"R_sqared:", lgb_eval$Rsq,"MedAE:", lgb_eval$MedAE,"MRE:",lgb_eval$MRE, "\n")
+
+
+
+```
+##5. Feature Importance
+```{r}
+lgb_importance <- lgb.importance(model = lgb_model)
+lgb.plot.importance(lgb_importance, top_n = 10)
+
+```
+##6. Residual Analysis
+```{r}
+
+residuals <- test_data$RT - lgb_predictions
+
+ggplot(data = data.frame(Residuals = residuals), aes(x = Residuals)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  labs(title = "Residuals Distribution", x = "Residuals", y = "Density") +
+  theme_minimal()
+
+
+predictions_df <- data.frame(
+  Actual = test_data$RT,
+  LightGBM_Predictions = lgb_predictions
+)
+write.csv(predictions_df, "lightgbm_predictions.csv", row.names = FALSE)
+
+write.csv(data.frame(
+  Model = "LightGBM",
+  MAE = lgb_eval$MAE,
+  RMSE = lgb_eval$RMSE,
+  R_Squared = lgb_eval$Rsq
+), "lightgbm_metrics.csv", row.names = FALSE)
+
+
+
+```
