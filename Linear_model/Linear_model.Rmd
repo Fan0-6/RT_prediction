@@ -1,0 +1,215 @@
+---
+title: "STA221FinalProjectR"
+output: pdf_document
+date: "2024-11-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+data <- read.csv("descriptors.csv",
+                header = TRUE, sep = ",")
+check = read.csv("check_data_with_descriptors.csv",
+                header = TRUE, sep = ",")
+```
+
+```{r cars}
+drops=c("NAME","InChIKey", "SMILES")
+data=data[,!(names(data)%in%drops)]
+```
+
+```{r cars}
+used_variables = names(check)
+used_train = which(names(data) %in% used_variables)
+#data = data[used_train]
+```
+```{r cars}
+print(head(data))
+```
+
+
+```{r cars}
+library("dplyr")
+training_dataset  <- data %>% dplyr::sample_frac(0.7)
+testing_dataset   <- dplyr::anti_join(data, 
+                                      training_dataset, by = 'RT')
+```
+```{r cars}
+fit1 = lm(RT ~ ., data = training_dataset)
+s = summary(fit1)
+print(sum((s$residuals)^2)/length(s$residuals))
+```
+
+```{r pressure, echo=FALSE}
+plot(fit1)
+```
+
+The Residual vs fitted value plot does not show clear nonlinear pattern, so linearity assumption is satisfied. This plot also shown that the variance of residuals are equalily spread among the fitted values, suggesting that the constant error variance assumption is satisfied. However, the normal Q-Q plot is lightly skewed at the tails, suggesting that the normality of the error terms might not be satisfied.
+
+```{r cars}
+library(MASS)
+bc <- boxcox(fit1)
+```
+
+By applying the box-cox procedure, we conclude that transforming y to y^0.8 is the best way to address non normality.
+
+```{r cars}
+fit2 = lm(RT^0.8 ~ ., data = training_dataset)
+s = summary(fit2)
+fit3=lm(RT^0.8 ~ piPC7 + piPC6 + VSA_EState4 + ATSC1se + GATS1pe + piPC5 + 
+    PetitjeanIndex + NssssSi + GATS2v + nBase + ATSC2c + MATS1m + 
+    ATSC0se + NdO + SdO + Lipinski + EState_VSA3 + ATS7dv + AXp.2d + 
+    n5ARing + AATSC4c + MATS4c + AATSC3are + MATS3pe + MWC10 + 
+    JGI9 + SMR_VSA5 + JGI1 + piPC1 + nG12Ring + AATSC1dv + ATSC1dv + 
+    AATSC4i + piPC8 + C3SP3 + MATS4v + PEOE_VSA1 + piPC2 + JGI3 + 
+    ATSC5Z + PEOE_VSA12 + SMR_VSA1, data=training_dataset)
+s = summary(fit3)
+```
+
+
+```{r pressure, echo=FALSE}
+plot(fit2)
+```
+
+```{r cars}
+p1 = predict(fit1,newdata = check)
+```
+```{r cars}
+print(sum((p1-(check$RT))^2)/length(p2))
+```
+The Q-Q plot for model fitted with RT^0.8 has very little difference compare to that of the initial model.
+Now we will employ model selection first with AIC.
+```{r pressure, echo=FALSE}
+fit.0=lm(RT^0.8~1, data=training_dataset)
+step.aic=stepAIC(fit3, scope=list(upper=fit2, lower=~1), direction="both", k=2, trace=FALSE)
+step.aic$anova
+```
+```{r pressure, echo=FALSE}
+fit4=lm(RT^0.8 ~ piPC7 + VSA_EState4 + piPC5 + GATS2v + nBase + MATS1m + 
+    ATS7dv + AATSC3are + MATS3pe + C3SP3 + MATS4v + JGI3 + ATSC5Z + 
+    PEOE_VSA12 + SMR_VSA3 + GhoseFilter + IC1 + AATS1i + ATSC4se + 
+    nAcid + EState_VSA9 + PEOE_VSA7 + JGI5 + 
+    nFaRing + JGI2 + MATS4d + JGI10 + Mp + JGI7 + EState_VSA6 + 
+    SIC4 + VSA_EState8 + MATS2v + IC4 + AATS4d + SIC1 + AATSC2Z + 
+    AATSC4pe + AATSC4v + nHRing + GATS4p + AATSC4d + ATSC4i + 
+    JGI6 + SlogP_VSA3 + ATSC8d + ATSC7d + ATSC3v + AATSC2m + 
+    AATSC2pe + MATS2p + SdssC + VSA_EState2 + VSA_EState9 + AXp.1dv + 
+    ECIndex + NdNH + NdS + SdS + ATS4dv + nHetero + MATS1Z + ATSC3Z + JGI4 + NdssS + EState_VSA1 + ATSC2d + 
+    nSpiro + ATSC2se + GATS3v + nO + GATS3d + SlogP_VSA8 + ATSC3se + 
+    n6aRing + nHBDon + GATS1Z + GATS1v + ATSC5m + ATSC4Z + ATS8m + 
+    ATSC2Z + MIC3 + ATS3m + ATSC6se + ATSC1v + Xpc.6d + VSA_EState5 + 
+    nX + GATS4se + piPC3 + ATSC2p + GATS4dv + nHBAcc + SMR_VSA1 + 
+    AATS2i + ATSC0se + SssssN + ATS1dv + piPC4 + 
+    AATSC1dv + ATSC0i + AATSC0dv + TopoPSA.NO. + NsCH3 + nRot + 
+    GATS2Z + n6aHRing + GGI4 + Xp.1dv + bpol + GATS4v + AATSC4se + 
+    ATSC3pe + EState_VSA7 + SsNH3 + ATSC1m + ATSC3m + 
+    AATSC1p + SdsssP + Xp.4dv + AATSC4i + ZMIC5 + TopoShapeIndex + ATS8dv, data=training_dataset)
+s = summary(fit4)
+print(s)
+p4 = predict(fit4,newdata = check)
+```
+
+```{r pressure, echo=FALSE}
+sum = 0
+c = 0
+m = c()
+for (i in abs(p4^(1/0.8)-check$RT)){
+  if (is.na(i) == FALSE){
+    sum = sum+i[1]
+    c = c+1
+    m = c(m,i[1])
+  }
+}
+print(sum/c)
+print(median(m))
+sum2 = 0
+c2 = 0
+for (i in (p4^(1/0.8)-check$RT)^2){
+  if (is.na(i) == FALSE){
+    sum2 = sum2+i[1]
+    c2 = c2+1
+  }
+}
+print(sum2/c2)
+sum3 = 0
+c3 = 0
+for (i in abs(p4^(1/0.8)-check$RT)/abs(check$RT)){
+  if (is.na(i) == FALSE){
+    sum3 = sum3+i[1]
+    c3 = c3+1
+  }
+}
+print(sum3/c3)
+```
+```{r pressure, echo=FALSE}
+ymean = mean(check$RT)
+ysumSquared = 0
+for (i in check$RT){
+  if (is.na(i) == FALSE){
+    ysumSquared = ysumSquared + (i-ymean)^2
+  }
+}
+print(1-sum2/ysumSquared)
+print(ysumSquared)
+```
+
+```{r pressure, echo=FALSE}
+p5 = predict(fit4,training_dataset)
+print(p5)
+```
+
+```{r pressure, echo=FALSE}
+fit4=lm(RT^0.8 ~ piPC7 + VSA_EState4 + piPC5 + GATS2v + nBase + MATS1m + 
+    ATS7dv + AATSC3are + MATS3pe + C3SP3 + MATS4v + JGI3 + ATSC5Z + 
+    PEOE_VSA12 + SMR_VSA3 + GhoseFilter + IC1 + AATS1i + ATSC4se + 
+    nAcid + EState_VSA9 + PEOE_VSA7 + JGI5 + 
+    nFaRing + JGI2 + MATS4d + JGI10 + Mp + JGI7 + EState_VSA6 + 
+    SIC4 + VSA_EState8 + MATS2v + IC4 + AATS4d + SIC1 + AATSC2Z + 
+    AATSC4pe + AATSC4v + nHRing + GATS4p + AATSC4d + ATSC4i + 
+    JGI6 + SlogP_VSA3 + ATSC8d + ATSC7d + ATSC3v + AATSC2m + 
+    AATSC2pe + MATS2p + SdssC + VSA_EState2 + VSA_EState9 + AXp.1dv + 
+    ECIndex + NdNH + NdS + SdS + ATS4dv + nHetero + MATS1Z + ATSC3Z + JGI4 + NdssS + EState_VSA1 + ATSC2d + 
+    nSpiro + ATSC2se + GATS3v + nO + GATS3d + SlogP_VSA8 + ATSC3se + 
+    n6aRing + nHBDon + GATS1Z + GATS1v + ATSC5m + ATSC4Z + ATS8m + 
+    ATSC2Z + MIC3 + ATS3m + ATSC6se + ATSC1v + Xpc.6d + VSA_EState5 + 
+    nX + GATS4se + piPC3 + ATSC2p + GATS4dv + nHBAcc + SMR_VSA1 + 
+    AATS2i + ATSC0se + SssssN + ATS1dv + piPC4 + 
+    AATSC1dv + ATSC0i + AATSC0dv + TopoPSA.NO. + NsCH3 + nRot + 
+    GATS2Z + n6aHRing + GGI4 + Xp.1dv + bpol + GATS4v + AATSC4se + 
+    ATSC3pe + EState_VSA7 + SsNH3 + ATSC1m + ATSC3m + 
+    AATSC1p + SdsssP + Xp.4dv + AATSC4i + ZMIC5 + TopoShapeIndex + ATS8dv, data=training_dataset)
+```
+
+By utilizing stepwise procedure with AIC as model selection, we reach a model containing only 205 variables.
+
+```{r pressure, echo=FALSE}
+fit5=lm(RT ~ piPC7 + VSA_EState4 + piPC5 + GATS2v + nBase + MATS1m + 
+    ATS7dv + AATSC3are + MATS3pe + C3SP3 + MATS4v + JGI3 + ATSC5Z + 
+    PEOE_VSA12 + SMR_VSA3 + GhoseFilter + IC1 + AATS1i + ATSC4se + 
+    nAcid + EState_VSA9 + PEOE_VSA7 + JGI5 + 
+    nFaRing + JGI2 + MATS4d + JGI10 + Mp + JGI7 + EState_VSA6 + 
+    SIC4 + VSA_EState8 + MATS2v + IC4 + AATS4d + SIC1 + AATSC2Z + 
+    AATSC4pe + AATSC4v + nHRing + GATS4p + AATSC4d + ATSC4i + 
+    JGI6 + SlogP_VSA3 + ATSC8d + ATSC7d + ATSC3v + AATSC2m + 
+    AATSC2pe + MATS2p + SdssC + VSA_EState2 + VSA_EState9 + AXp.1dv + 
+    ECIndex + NdNH + NdS + SdS + ATS4dv + nHetero + MATS1Z + ATSC3Z + JGI4 + NdssS + EState_VSA1 + ATSC2d + 
+    nSpiro + ATSC2se + GATS3v + nO + GATS3d + SlogP_VSA8 + ATSC3se + 
+    n6aRing + nHBDon + GATS1Z + GATS1v + ATSC5m + ATSC4Z + ATS8m + 
+    ATSC2Z + MIC3 + ATS3m + ATSC6se + ATSC1v + Xpc.6d + VSA_EState5 + 
+    nX + GATS4se + piPC3 + ATSC2p + GATS4dv + nHBAcc + SMR_VSA1 + 
+    AATS2i + ATSC0se + SssssN + ATS1dv + piPC4 + 
+    AATSC1dv + ATSC0i + AATSC0dv + TopoPSA.NO. + NsCH3 + nRot + 
+    GATS2Z + n6aHRing + GGI4 + Xp.1dv + bpol + GATS4v + AATSC4se + 
+    ATSC3pe + EState_VSA7 + SsNH3 + ATSC1m + ATSC3m + 
+    AATSC1p + SdsssP + Xp.4dv + AATSC4i + ZMIC5 + TopoShapeIndex + ATS8dv, data=training_dataset)
+plot(fit5)
+boxcox(fit5)
+```
